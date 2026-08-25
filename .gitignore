@@ -1,0 +1,22 @@
+# compiled binaries (no extension, so list explicitly)
+vector_add
+*.out
+*.exe
+
+# object / intermediate files
+*.o
+*.obj
+*.cubin
+*.ptx
+*.fatbin
+
+# profiler output
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+*.csv
+
+# editor / OS junk
+.vscode/
+.DS_Store
+*.swp
