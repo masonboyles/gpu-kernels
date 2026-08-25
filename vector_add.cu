@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <cstdio>
+#include <algorithm>
 
 // TODO: mark this so it runs on the GPU (one keyword goes before 'void')
 __global__ void vector_add(const float* a, const float* b, float* c, int n) {
@@ -13,8 +14,14 @@ __global__ void vector_add(const float* a, const float* b, float* c, int n) {
 
 }
 
+__host__ double effective_bandwidth_gbs(size_t bytes_moved, float ms) {
+    // TODO: bytes per millisecond → gigabytes per second
+    float bps = bytes_moved/ms;
+    return (bps / 1e6);
+}
+
 int main() {
-    const int n = (1 << 20);
+    const int n = (1 << 26);
     const size_t bytes = n * sizeof(float);
 
     // --- CPU arrays ---
@@ -72,6 +79,34 @@ int main() {
     } else {
         printf("False\n");
     }
+    // Benchmark
+    cudaEvent_t start, stop;
+
+    for (int i = 0; i<10; i++){
+        vector_add<<<blocks, threads>>>(d_a, d_b, d_c, n);
+    }
+    cudaDeviceSynchronize();
+    const int iters = 100;
+    float times[iters];
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    for (int i =0; i<iters; i++){
+        float ms;
+        cudaEventRecord(start);
+        vector_add<<<blocks, threads>>>(d_a, d_b, d_c, n);
+        cudaEventRecord(stop);
+        cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&ms, start, stop);
+        times[i] = ms;
+    }
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+
+    std::sort(times, times + iters);
+    float median = (times[49] + times[50])/2;
+    printf("effective bandwidth: %f, Median Time in ms %f\n", effective_bandwidth_gbs(bytes*3, median), median);
+
+
     // --- cleanup ---
     // TODO: cudaFree the three device pointers, delete[] the three host arrays
     cudaFree(d_a);
