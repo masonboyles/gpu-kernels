@@ -1,119 +1,75 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <algorithm>
+//#include "timer.h"
 
-// TODO: mark this so it runs on the GPU (one keyword goes before 'void')
-__global__ void vector_add(const float* a, const float* b, float* c, int n) {
-    // TODO: compute THIS thread's index from blockIdx.x, blockDim.x, threadIdx.x
-    // TODO: guard against running past the end of the array
-    // TODO: do the add for exactly one element
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i<n) {
-        c[i] = a[i] + b[i];
-    }
-
+__device__ __host__ float add_numbers(float a, float b){
+    return (a+b);
 }
 
-__host__ double effective_bandwidth_gbs(size_t bytes_moved, float ms) {
-    // TODO: bytes per millisecond → gigabytes per second
-    float bps = bytes_moved/ms;
-    return (bps / 1e6);
+__global__ void vector_add_kernel(float* a, float* b, float* c, unsigned int N){
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i<N) {
+        c[i] = add_numbers(a[i], b[i]);
+    }
 }
 
-int main() {
-    const int n = (1 << 26);
-    const size_t bytes = n * sizeof(float);
-
-    // --- CPU arrays ---
-    // TODO: allocate h_a, h_b, h_c with new float[n]
-    // TODO: fill h_a with 1.0f and h_b with 2.0f in a loop
-
-    float *h_a = new float[n];
-    float *h_b = new float[n];
-    float *h_c = new float[n];
-
-    for (int i =0; i<n; i++){
-        h_a[i] = i;
-        h_b[i] = i * 2;
-        h_c[i] = -1.0f;
+__host__ void vector_add_cpu(float* a, float* b, float* c, unsigned int N){
+    for (int i =0; i<N; i++){
+        c[i] = add_numbers(a[i], b[i]);
     }
+}
 
-    // --- GPU arrays ---
-    float *d_a, *d_b, *d_c;
-    // TODO: cudaMalloc each one
-    cudaMalloc(&d_a, bytes);
-    cudaMalloc(&d_b, bytes);
-    cudaMalloc(&d_c, bytes);
+int main(){
+    unsigned int N = (1 << 26);
+    dim3 blockSize(512);
+    dim3 numBlocks((N+blockSize.x-1)/blockSize.x);
 
-    // --- upload ---
-    // TODO: cudaMemcpy h_a -> d_a, h_b -> d_b
+    float *a, *b, *c;
+    a = (float *)malloc(N*sizeof(float));
+    b = (float *)malloc(N*sizeof(float));
+    c = (float *)malloc(N*sizeof(float));
 
-    cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice);
+    for (int i = 0; i <N; i++){
+        a[i] = rand();
+        b[i] = rand();
+    }
+    float *a_d, *b_d, *c_d;
+    cudaMalloc(&a_d, N*sizeof(float));
+    cudaMalloc(&b_d, N*sizeof(float));
+    cudaMalloc(&c_d, N*sizeof(float));
 
-    // --- launch ---
-    int threads = 256;
-    // TODO: compute how many blocks you need to cover n elements
-    // TODO: launch the kernel with <<< >>>
+    cudaMemcpy(a_d, a, N*sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(b_d, b, N*sizeof(float), cudaMemcpyHostToDevice);
 
-    int blocks = (n + threads - 1) / threads;
-    vector_add<<<blocks, threads>>>(d_a, d_b, d_c, n);
+    // Timer timer;
+    // startTime(&timer);
+    vector_add_kernel <<< numBlocks, blockSize >>> (a_d, b_d, c_d, N);
+    cudaDeviceSynchronize();
+    // stopTime(&timer);
+    // printElapsedTime(timer, "GPU Time", CYAN);
 
-    printf("launch: %s\n", cudaGetErrorString(cudaGetLastError()));
-    cudaError_t err = cudaDeviceSynchronize();
-    printf("sync:   %s\n", cudaGetErrorString(err));
-    
+    cudaMemcpy(c, c_d, N*sizeof(float), cudaMemcpyDeviceToHost);
 
-    // --- download and check ---
-    // TODO: cudaMemcpy d_c -> h_c
-    // TODO: printf a couple of elements, expect 3.0
-    cudaMemcpy(h_c, d_c, bytes, cudaMemcpyDeviceToHost);
-    bool correct = true;
-    for (int i =0; i<n; i++){
-        if (h_a[i] + h_b[i]!= h_c[i]){
-            correct = false;
+    // startTime(&timer);
+   // vector_add_cpu(a, b, c, N);
+    // stopTime(&timer);
+   // printElapsedTime(timer, "CPU Time", CYAN);
+
+    int correct = 1;
+    for (int i = 0; i< N; i++){
+        if (a[i]+b[i] != c[i]) {
+            correct = 0;
         }
     }
-    if (correct == true){
-        printf("True\n");
-    } else {
-        printf("False\n");
-    }
-    // Benchmark
-    cudaEvent_t start, stop;
-
-    for (int i = 0; i<10; i++){
-        vector_add<<<blocks, threads>>>(d_a, d_b, d_c, n);
-    }
-    cudaDeviceSynchronize();
-    const int iters = 100;
-    float times[iters];
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    for (int i =0; i<iters; i++){
-        float ms;
-        cudaEventRecord(start);
-        vector_add<<<blocks, threads>>>(d_a, d_b, d_c, n);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&ms, start, stop);
-        times[i] = ms;
-    }
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
-
-    std::sort(times, times + iters);
-    float median = (times[49] + times[50])/2;
-    printf("effective bandwidth: %f, Median Time in ms %f\n", effective_bandwidth_gbs(bytes*3, median), median);
+    printf("%d\n", correct);
 
 
-    // --- cleanup ---
-    // TODO: cudaFree the three device pointers, delete[] the three host arrays
-    cudaFree(d_a);
-    cudaFree(d_b);
-    cudaFree(d_c);
-    delete[] h_a;
-    delete[] h_b;
-    delete[] h_c;
-
+    cudaFree(a_d);
+    cudaFree(b_d);
+    cudaFree(c_d);
+    free(a);
+    free(b);
+    free(c);
+    return 0;
 }
