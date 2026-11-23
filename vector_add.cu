@@ -1,6 +1,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 #include <algorithm>
+#include <cuda_profiler_api.h>
 //#include "timer.h"
 
 __device__ __host__ float add_numbers(float a, float b){
@@ -56,13 +57,13 @@ int main(){
     // stopTime(&timer);
    // printElapsedTime(timer, "CPU Time", CYAN);
 
-    int correct = 1;
-    for (int i = 0; i< N; i++){
-        if (a[i]+b[i] != c[i]) {
-            correct = 0;
-        }
-    }
-    printf("%d\n", correct);
+    // int correct = 1;
+    // for (int i = 0; i< N; i++){
+    //     if (a[i]+b[i] != c[i]) {
+    //         correct = 0;
+    //     }
+    // }
+    // printf("%d\n", correct);
 
 
     cudaFree(a_d);
@@ -71,5 +72,7 @@ int main(){
     free(a);
     free(b);
     free(c);
+
+    cudaProfilerStop();
     return 0;
 }

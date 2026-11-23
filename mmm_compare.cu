@@ -134,6 +134,18 @@ float max_difference(const std::vector<float> &left, const std::vector<float> &r
     return difference;
 }
 
+void cpu_mmm(const float *A, const float *B, float *C, unsigned int N) {
+    for (unsigned int row = 0; row < N; ++row) {
+        for (unsigned int col = 0; col < N; ++col) {
+            float sum = 0.0f;
+            for (unsigned int k = 0; k < N; ++k) {
+                sum += A[row * N + k] * B[k * N + col];
+            }
+            C[row * N + col] = sum;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     unsigned int N = argc > 1 ? static_cast<unsigned int>(std::strtoul(argv[1], nullptr, 10)) : 512;
     int warmup = argc > 2 ? std::atoi(argv[2]) : 5;
@@ -150,6 +162,7 @@ int main(int argc, char **argv) {
     std::vector<float> B(element_count);
     std::vector<float> tiled_result(element_count);
     std::vector<float> coarse_result(element_count);
+    std::vector<float> cpu_result(element_count);
 
     for (size_t i = 0; i < element_count; ++i) {
         A[i] = static_cast<float>((i % 17) + 1) / 17.0f;
@@ -169,11 +182,14 @@ int main(int argc, char **argv) {
     float coarse_ms = benchmark_coarse(A_d, B_d, C_d, N, warmup, repetitions);
     CUDA_CHECK(cudaMemcpy(coarse_result.data(), C_d, bytes, cudaMemcpyDeviceToHost));
 
+    cpu_mmm(A.data(), B.data(), cpu_result.data(), N);
+
     std::printf("N=%u, warmup=%d, repetitions=%d\n", N, warmup, repetitions);
     std::printf("tiled:     %8.4f ms\n", tiled_ms);
     std::printf("coarsened: %8.4f ms\n", coarse_ms);
     std::printf("speedup:   %8.3fx\n", tiled_ms / coarse_ms);
-    std::printf("max diff:  %.6g\n", max_difference(tiled_result, coarse_result));
+    std::printf("max diff (tiled vs CPU):  %.6g\n", max_difference(tiled_result, cpu_result));
+    std::printf("max diff (coarse vs CPU): %.6g\n", max_difference(coarse_result, cpu_result));
 
     CUDA_CHECK(cudaFree(A_d));
     CUDA_CHECK(cudaFree(B_d));
